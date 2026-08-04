@@ -4,8 +4,10 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # Standard B2 env var names (see docs/SECURITY.md). The S3 endpoint is
     # derived from the region rather than configured directly, so a clone only
-    # needs the four B2_* credentials plus the region.
-    b2_region: str = "us-west-004"
+    # needs the four B2_* credentials plus the region. No region is hardcoded in
+    # source: B2_REGION is required (validated at startup in main.py) and its
+    # value is supplied by .env (see .env.example, which ships us-west-004).
+    b2_region: str = ""
     b2_application_key_id: str = ""
     b2_application_key: str = ""
     b2_bucket_name: str = ""

@@ -113,8 +113,8 @@ dashboard](https://secure.backblaze.com/b2_buckets.htm?utm_source=github&utm_med
 
 `B2_PUBLIC_URL_BASE` is optional (only used to build public object URLs for public
 buckets). See docs for [creating a
-bucket](https://www.backblaze.com/docs/cloud-storage-create-and-manage-buckets)
-and [app keys](https://www.backblaze.com/docs/cloud-storage-create-and-manage-app-keys).
+bucket](https://www.backblaze.com/docs/cloud-storage-create-and-manage-buckets?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-monai-dicom-segmentation)
+and [app keys](https://www.backblaze.com/docs/cloud-storage-create-and-manage-app-keys?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-monai-dicom-segmentation).
 
 **3. Run it**
 
