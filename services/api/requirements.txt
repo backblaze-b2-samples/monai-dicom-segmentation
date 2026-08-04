@@ -21,6 +21,10 @@ nibabel>=5.2.0,<6.0.0
 pydicom>=2.4.0,<4.0.0
 scikit-image>=0.24.0,<0.26.0
 scipy>=1.13.0,<2.0.0
+# Required by the Swin UNETR bundle (swin_unetr_btcv_segmentation): MONAI's
+# SwinUNETR calls einops.rearrange via optional_import, so without einops the
+# Swin model path fails at inference. The default spleen UNet does not need it.
+einops>=0.7.0,<0.9.0
 huggingface-hub>=0.24.0,<1.0.0
 requests>=2.31.0,<3.0.0
 numpy>=1.26.0,<2.0.0
