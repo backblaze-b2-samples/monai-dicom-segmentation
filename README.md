@@ -14,6 +14,28 @@ there is no second API key.** The segmentation model runs locally (CPU by
 default, GPU auto-detected) and its weights are pulled free from the MONAI model
 zoo.
 
+## What it looks like
+
+**Dashboard** — study metrics (total and segmented studies, imaging bytes, artifacts on B2), a 7-day upload-activity chart, and the most recent studies.
+
+![Dashboard with study metrics, a 7-day upload-activity chart, and recent studies](docs/images/dashboard.png)
+
+**Study Library** — every imaging study as a card with its axial CT preview, segmentation model, and lifecycle status badge.
+
+![Study library grid of imaging studies with axial previews and status badges](docs/images/studies-library.png)
+
+**Ingest** — upload a NIfTI or zipped-DICOM volume, label it, and pick the modality and MONAI segmentation model before it lands in B2.
+
+![Ingest form with an upload dropzone, label, modality, and segmentation-model fields](docs/images/ingest.png)
+
+**Study review** — the axial slice viewer beside study details, per-label segmentation stats (voxels and mL), and one-click downloads of every B2 artifact.
+
+![Study review page with the slice viewer, details, segmentation stats, and B2 artifact downloads](docs/images/study-detail.png)
+
+**Segmentation overlay** — the same slice viewer toggled to the mask overlay, showing the organ segmentation painted on the CT and streamed from B2 presigned URLs.
+
+![Slice viewer showing the segmentation mask overlaid on an abdominal CT slice](docs/images/study-overlay.png)
+
 ## Why B2 for imaging
 
 Scientific imaging is heavy, fast-landing, and **write-amplifying**: one source
