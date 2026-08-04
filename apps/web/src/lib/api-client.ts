@@ -3,18 +3,29 @@ import type {
   FileMetadata,
   FileMetadataDetail,
   FileUploadResponse,
+  Study,
+  StudyStats,
+  StudySummary,
   UploadStats,
 } from "@monai-dicom-segmentation/shared";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 type ApiClientRoute = {
-  method: "delete" | "get" | "post";
+  method: "delete" | "get" | "patch" | "post";
   path: string;
 };
 
 export const API_CLIENT_ROUTES = {
   health: { method: "get", path: "/health" },
+  studies: { method: "get", path: "/studies" },
+  createStudy: { method: "post", path: "/studies" },
+  studyStats: { method: "get", path: "/studies/stats" },
+  study: { method: "get", path: "/studies/{study_id}" },
+  updateStudy: { method: "patch", path: "/studies/{study_id}" },
+  deleteStudy: { method: "delete", path: "/studies/{study_id}" },
+  segmentStudy: { method: "post", path: "/studies/{study_id}/segment" },
+  studySlice: { method: "get", path: "/studies/{study_id}/slices/{kind}/{index}" },
   files: { method: "get", path: "/files" },
   fileStats: { method: "get", path: "/files/stats" },
   uploadActivity: { method: "get", path: "/files/stats/activity" },
@@ -229,6 +240,78 @@ export async function deleteFile(key: string) {
       method: API_CLIENT_ROUTES.fileByKeyDelete.method.toUpperCase(),
     }
   );
+}
+
+// --- Studies ---------------------------------------------------------------
+
+function studyPath(template: string, id: string): string {
+  return template.replace("{study_id}", encodeURIComponent(id));
+}
+
+export async function getStudies() {
+  return apiFetch<StudySummary[]>(API_CLIENT_ROUTES.studies.path);
+}
+
+export async function getStudyStats() {
+  return apiFetch<StudyStats>(API_CLIENT_ROUTES.studyStats.path);
+}
+
+export async function getStudy(id: string) {
+  return apiFetch<Study>(studyPath(API_CLIENT_ROUTES.study.path, id));
+}
+
+export async function createStudy(input: {
+  file: File;
+  label: string;
+  modality: string;
+  model: string;
+}) {
+  const form = new FormData();
+  form.append("file", input.file);
+  form.append("label", input.label);
+  form.append("modality", input.modality);
+  form.append("model", input.model);
+  return apiFetch<Study>(API_CLIENT_ROUTES.createStudy.path, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export async function updateStudy(
+  id: string,
+  body: { label?: string; model?: string }
+) {
+  return apiFetch<Study>(studyPath(API_CLIENT_ROUTES.updateStudy.path, id), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteStudy(id: string) {
+  return apiFetch<{ deleted: boolean; id: string }>(
+    studyPath(API_CLIENT_ROUTES.deleteStudy.path, id),
+    { method: "DELETE" }
+  );
+}
+
+export async function runSegmentation(id: string) {
+  return apiFetch<Study>(studyPath(API_CLIENT_ROUTES.segmentStudy.path, id), {
+    method: "POST",
+  });
+}
+
+/** Presigned inline URL for one preview slice PNG. */
+export async function getSliceUrl(
+  id: string,
+  kind: "volume" | "overlay",
+  index: number
+) {
+  const path = API_CLIENT_ROUTES.studySlice.path
+    .replace("{study_id}", encodeURIComponent(id))
+    .replace("{kind}", kind)
+    .replace("{index}", String(index));
+  return apiFetch<{ url: string }>(path);
 }
 
 export function uploadFile(

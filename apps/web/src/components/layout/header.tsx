@@ -29,11 +29,21 @@ import { activeUploadLabel } from "@/lib/upload-status";
 // (e.g. "/" -> "Dashboard", "/design" -> "Design System").
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
+  "/studies": "Studies",
+  "/studies/new": "Ingest",
   "/upload": "Upload",
   "/files": "Files",
   "/settings": "Settings",
   "/design": "Design System",
 };
+
+// A study detail/edit route (`/studies/<id>`, `/studies/<id>/edit`) reads under
+// the "Studies" section rather than surfacing the raw id in the breadcrumb.
+function resolvePageTitle(pathname: string): string {
+  if (pageTitles[pathname]) return pageTitles[pathname];
+  if (pathname.startsWith("/studies/")) return "Studies";
+  return deriveTitleFromPath(pathname);
+}
 
 // Fallback page label for routes not in the override map: title-case the last
 // non-empty path segment, splitting hyphens (e.g. "/file-browser" -> "File Browser").
@@ -49,7 +59,7 @@ function deriveTitleFromPath(pathname: string): string {
 export function Header() {
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
-  const pageTitle = pageTitles[pathname] ?? deriveTitleFromPath(pathname);
+  const pageTitle = resolvePageTitle(pathname);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const nextTheme = resolvedTheme === "dark" ? "light" : "dark";
   // An upload started on /upload keeps running while the user browses, so it

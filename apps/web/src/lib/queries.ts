@@ -8,18 +8,29 @@ import {
 } from "@tanstack/react-query";
 import {
   ApiError,
+  createStudy,
   deleteFile,
+  deleteStudy,
   getDownloadUrl,
   getFileDetail,
   getFiles,
   getFileStats,
   getHealth,
   getPreviewUrl,
+  getSliceUrl,
+  getStudies,
+  getStudy,
+  getStudyStats,
   getUploadActivity,
+  runSegmentation,
+  updateStudy,
 } from "@/lib/api-client";
 import type {
   FileMetadata,
   FileMetadataDetail,
+  Study,
+  StudyStats,
+  StudySummary,
 } from "@monai-dicom-segmentation/shared";
 
 // Single source of truth for query keys. Keep these tightly scoped so that
@@ -35,6 +46,9 @@ export const qk = {
   preview: (key: string) => [...qk.all, "preview", key] as const,
   detail: (key: string) => [...qk.all, "detail", key] as const,
   health: () => [...qk.all, "health"] as const,
+  studies: () => [...qk.all, "studies"] as const,
+  study: (id: string) => [...qk.all, "study", id] as const,
+  studyStats: () => [...qk.all, "study-stats"] as const,
 };
 
 export type Health = Awaited<ReturnType<typeof getHealth>>;
@@ -166,6 +180,110 @@ export function useDeleteFile() {
       // activity) against the server in the background.
       dropDeletedFileFromCache(qc, fileKey);
       qc.invalidateQueries({ queryKey: qk.all });
+    },
+  });
+}
+
+// --- Studies ---------------------------------------------------------------
+
+// Poll while any study is mid-pipeline so the Library reflects a run started
+// elsewhere (or from the detail page) without a manual refresh.
+export function useStudies() {
+  return useQuery<StudySummary[], ApiError>({
+    queryKey: qk.studies(),
+    queryFn: getStudies,
+    refetchInterval: (query) =>
+      query.state.data?.some((s) => s.status === "processing") ? 4000 : false,
+  });
+}
+
+// One study. Polls while it is `processing` so the detail view flips to
+// `segmented`/`failed` on its own when the run finishes.
+export function useStudy(id: string | undefined, { enabled = true }: QueryGate = {}) {
+  return useQuery<Study, ApiError>({
+    queryKey: qk.study(id ?? ""),
+    queryFn: () => getStudy(id as string),
+    enabled: enabled && !!id,
+    refetchInterval: (query) =>
+      query.state.data?.status === "processing" ? 3000 : false,
+  });
+}
+
+// Presigned inline URL for one preview slice PNG, keyed by (id, kind, index).
+// Kept short-lived like the file preview URL; the presigned link outlives it.
+export function useSliceUrl(
+  id: string,
+  kind: "volume" | "overlay",
+  index: number,
+  { enabled = true }: QueryGate = {}
+) {
+  return useQuery<{ url: string }, ApiError>({
+    queryKey: [...qk.study(id), "slice", kind, index],
+    queryFn: () => getSliceUrl(id, kind, index),
+    enabled: enabled && !!id && index >= 0,
+    staleTime: 4 * 60_000,
+  });
+}
+
+export function useStudyStats({ enabled = true }: QueryGate = {}) {
+  return useQuery<StudyStats, ApiError>({
+    queryKey: qk.studyStats(),
+    queryFn: getStudyStats,
+    enabled,
+  });
+}
+
+export function useCreateStudy() {
+  const qc = useQueryClient();
+  return useMutation<
+    Study,
+    ApiError,
+    { file: File; label: string; modality: string; model: string }
+  >({
+    mutationFn: createStudy,
+    onSuccess: (study) => {
+      qc.setQueryData(qk.study(study.id), study);
+      qc.invalidateQueries({ queryKey: qk.studies() });
+      qc.invalidateQueries({ queryKey: qk.studyStats() });
+    },
+  });
+}
+
+export function useUpdateStudy() {
+  const qc = useQueryClient();
+  return useMutation<
+    Study,
+    ApiError,
+    { id: string; label?: string; model?: string }
+  >({
+    mutationFn: ({ id, label, model }) => updateStudy(id, { label, model }),
+    onSuccess: (study) => {
+      qc.setQueryData(qk.study(study.id), study);
+      qc.invalidateQueries({ queryKey: qk.studies() });
+    },
+  });
+}
+
+export function useDeleteStudy() {
+  const qc = useQueryClient();
+  return useMutation<{ deleted: boolean; id: string }, ApiError, string>({
+    mutationFn: (id) => deleteStudy(id),
+    onSuccess: (_data, id) => {
+      qc.removeQueries({ queryKey: qk.study(id) });
+      qc.invalidateQueries({ queryKey: qk.studies() });
+      qc.invalidateQueries({ queryKey: qk.studyStats() });
+    },
+  });
+}
+
+export function useRunSegmentation() {
+  const qc = useQueryClient();
+  return useMutation<Study, ApiError, string>({
+    mutationFn: (id) => runSegmentation(id),
+    onSuccess: (study) => {
+      qc.setQueryData(qk.study(study.id), study);
+      qc.invalidateQueries({ queryKey: qk.studies() });
+      qc.invalidateQueries({ queryKey: qk.studyStats() });
     },
   });
 }
