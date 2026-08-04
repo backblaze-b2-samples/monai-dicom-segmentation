@@ -42,7 +42,7 @@ Land a DICOM/NIfTI imaging volume in B2 as a new Study, de-identify DICOM PHI, a
 - Heavy imports (nibabel/pydicom) are lazy — the API boots without them
 
 ## UX States
-- Idle (dropzone) · Submitting (`Ingesting...`) · Error toast
+- Idle (dropzone) · Submitting — the button shows an `Ingesting...` spinner and an in-progress `<Alert>` ("Ingesting volume") explains the upload + server-side preview render, sets a ~1-minute expectation, and shows an indeterminate (animated, no fake percentage) progress bar since the request reports no server-side progress · Error toast · Success redirect to the new study
 
 ## Verification
 - Test files: `services/api/tests/test_studies.py`

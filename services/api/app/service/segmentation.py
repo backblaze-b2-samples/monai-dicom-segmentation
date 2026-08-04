@@ -11,6 +11,7 @@ auto-detected device) -> render.
 
 from __future__ import annotations
 
+import collections
 import json
 import os
 from dataclasses import dataclass
@@ -119,6 +120,50 @@ def _label_names_from_metadata(meta_path: Path) -> dict[int, str]:
         return {}
 
 
+def _load_state_dict_compat(network, state, model_key: str) -> None:
+    """Load `state` into `network`, tolerating MONAI-version naming drift.
+
+    Some zoo bundles (e.g. spleen_ct_segmentation v0.5.9) shipped a `model.pt`
+    saved by an older MONAI whose UNet used different INTERNAL submodule NAMES
+    (`model.1.sub1.submodule...`) than MONAI 1.4.0 builds from the same
+    `network_def` (`model.1.submodule.submodule...`). It is the SAME
+    architecture — identical param count, order, and shapes — only the key
+    names differ, so a strict-by-name load fails.
+
+    Strategy: try strict-by-name first (newer bundles like
+    swin_unetr_btcv_segmentation load this way). On RuntimeError, fall back to a
+    POSITIONAL remap, which is only safe when the count and every positional
+    shape line up. A genuinely incompatible checkpoint still fails loudly.
+
+    `strict=False` is deliberately NOT used: it would silently leave the
+    name-mismatched layers randomly initialized and produce a garbage mask.
+    """
+    try:
+        network.load_state_dict(state, strict=True)
+        return
+    except RuntimeError:
+        pass
+
+    model_state = network.state_dict()
+    model_keys = list(model_state.keys())
+    values = list(state.values())
+    if len(model_keys) != len(values):
+        raise RuntimeError(
+            f"Cannot load bundle {model_key!r}: checkpoint has {len(values)} "
+            f"tensors but the network expects {len(model_keys)} — not the same "
+            "architecture, positional remap unsafe."
+        )
+    for name, value in zip(model_keys, values, strict=True):
+        if tuple(model_state[name].shape) != tuple(getattr(value, "shape", ())):
+            raise RuntimeError(
+                f"Cannot load bundle {model_key!r}: shape mismatch at positional "
+                f"key {name!r} ({tuple(model_state[name].shape)} vs "
+                f"{tuple(getattr(value, 'shape', ()))}) — positional remap unsafe."
+            )
+    remapped = collections.OrderedDict(zip(model_keys, values, strict=True))
+    network.load_state_dict(remapped, strict=True)
+
+
 def _load_bundle_network(model_key: str, device: str):
     from monai.bundle import download
     from monai.bundle.config_parser import ConfigParser
@@ -144,7 +189,7 @@ def _load_bundle_network(model_key: str, device: str):
     if network is None:
         raise RuntimeError(f"Could not build a network from bundle {model_key!r}")
 
-    network.load_state_dict(_load_state(weights, device))
+    _load_state_dict_compat(network, _load_state(weights, device), model_key)
     network.to(device).eval()
     return network, label_names
 

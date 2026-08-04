@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -213,6 +214,26 @@ export function StudyCreateForm() {
             />
           </CardContent>
         </Card>
+
+        {createStudy.isPending && (
+          <Alert>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <AlertTitle>Ingesting volume</AlertTitle>
+            <AlertDescription>
+              <p>
+                Uploading your volume and rendering axial preview slices on the
+                server. This can take up to a minute for a large volume — keep
+                this tab open; you&apos;ll be taken to the study automatically
+                when it&apos;s ready.
+              </p>
+              <div
+                role="progressbar"
+                aria-label="Ingesting volume"
+                className="progress-indeterminate mt-2 h-1 w-full rounded-full"
+              />
+            </AlertDescription>
+          </Alert>
+        )}
 
         <div className="flex items-center justify-end gap-2">
           <Button type="button" variant="outline" onClick={() => router.push("/studies")}>

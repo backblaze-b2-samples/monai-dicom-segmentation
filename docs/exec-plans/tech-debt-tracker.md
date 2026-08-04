@@ -1,4 +1,4 @@
-<!-- last_verified: 2026-07-29 -->
+<!-- last_verified: 2026-08-04 -->
 # Tech Debt Tracker
 
 Known tech debt items. Agents update this when they discover or create tech debt.
@@ -42,6 +42,18 @@ Low-severity polish, left for a follow-up; none blocks the core flow.
 - `/upload` File Details — the success toast can overlap the Dimensions row and hide its value while the panel is open
 - 404 route — the breadcrumb title-cases the unknown slug (e.g. "This Route Does Not Exist"), presenting a nonexistent route as a real page name; the rest of the 404 is solid
 - `/design` — the "Go to Upload" button inside the Patterns empty-state demo does not navigate; it is presumably a static sample, but it looks live on a linked primary surface
+
+## 2026-08-04 — verify
+
+Nitpicks (and one gate-demoted friction) surfaced by the 3-lens UX verify of the
+ingest → segment → review flow. None blocks the core flow; left for follow-up polish.
+
+- `/studies/[id]` overlay slice viewer — the Overlay tab opens on slice 1/24, where the spleen mask is barely visible, and nothing indicates which slices contain the mask → a first-time user can think segmentation produced nothing (the stats panel confirms it did); auto-jump to the first mask-bearing slice, or mark mask-bearing slices on the scrubber (shots `.local/verify/A/a9-overlay.png`, `.local/verify/B/14-overlay-mask-visible.png`)
+- `/studies/[id]` header subtitle — shows the raw model slug (`spleen_ct_segmentation` / `swin_unetr_btcv_segmentation`) while the create/edit forms show the friendly name (`Spleen CT (UNet)` / `Multi-organ CT (Swin UNETR, BTCV)`) → the review screen shows a different identifier than the one the user picked; render the friendly name (shots `.local/verify/A/a6-study-page.png`, `.local/verify/C/12-swin-overlay-slice.png`)
+- `/studies/[id]` segmentation stats (Swin UNETR) — the label reads "Left Kideny" (misspelled) → sourced verbatim from the upstream MONAI BTCV bundle `configs/metadata.json`, not app-introduced; consider a display-side label alias so a shipped screenshot isn't misspelled (shot `.local/verify/C/12-swin-overlay-slice.png`)
+- `/` and `/studies` — skeleton loaders linger >2s and a genuinely empty studies list renders skeletons rather than a clear "no studies yet — ingest your first volume" empty state → not a dead-end (the Ingest CTA is always present), but briefly reads as loading-forever (shots `.local/verify/A/a1-dashboard.png`, `.local/verify/A/a2-studies-library.png`)
+- `/studies/[id]` immediately after the ingest redirect — the first volume slice shows a black square for ~1–2s (the `<img>` mounts before bytes decode; no skeleton bridges the gap) → self-resolves and every slice paints on reload; add a slice-image loading placeholder (shot `.local/verify/C/03-detail-uploaded-volume.png`)
+- `/studies/[id]` segmentation processing banner — has an animated spinner + descriptive stage/time text but no determinate/advancing progress bar on the ~90s CPU wait (adversarial gate demoted this from friction to nitpick — the existing feedback is adequate and does not look frozen) → a determinate bar would need backend progress streaming from the blocking segment request (shot `.local/verify/B/05-seg-inprogress-banner.png`)
 
 ## Resolved
 
