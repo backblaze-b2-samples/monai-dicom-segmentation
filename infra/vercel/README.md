@@ -6,6 +6,16 @@ records the supported topology without linking a local directory, creating a
 Vercel project, deploying code, or storing environment values in the
 repository. An authorized human performs every external action.
 
+> **Fit caveat (important).** The **segmentation API does not fit Vercel
+> serverless Python**: the torch/monai dependency stack exceeds the Function
+> bundle size limit and CPU inference runs for minutes, past Function duration
+> limits. Deploy **only the web app** to Vercel and host the **API on a
+> container/VM** that allows heavy dependencies and long requests (see
+> [infra/railway/README.md](../railway/README.md), Fly.io, or a GPU box). The
+> API-on-Vercel material below is retained from the generic starter for the
+> lightweight-fork case only; the README ships no Vercel deploy buttons for that
+> reason.
+
 ## Service Contracts
 
 Create **two Vercel Projects** from the same Git repository. Vercel's monorepo
@@ -37,8 +47,8 @@ in `vercel.json`, source code, an issue, PR, terminal transcript, or screenshot.
 
 | Project | Variable names | Classification | Notes |
 | --- | --- | --- | --- |
-| API | `B2_KEY_ID`, `B2_APPLICATION_KEY` | Secret | Restrict the B2 key to the intended bucket and least privilege. |
-| API | `B2_ENDPOINT`, `B2_BUCKET_NAME`, `B2_PUBLIC_URL`, `API_CORS_ORIGINS`, `ENABLE_DOCS`, `ALLOWED_KEY_PREFIX`, rate settings | Non-secret configuration | Set an exact web origin in `API_CORS_ORIGINS`; set `ENABLE_DOCS=false` in production. |
+| API | `B2_APPLICATION_KEY_ID`, `B2_APPLICATION_KEY` | Secret | Restrict the B2 key to the intended bucket and least privilege. |
+| API | `B2_BUCKET_NAME`, `B2_REGION`, `B2_PUBLIC_URL_BASE`, `SEG_DEVICE`, `API_CORS_ORIGINS`, `ENABLE_DOCS`, `ALLOWED_KEY_PREFIX`, rate settings | Non-secret configuration | The S3 endpoint is derived from `B2_REGION`; `B2_PUBLIC_URL_BASE` is optional. Set an exact web origin in `API_CORS_ORIGINS`; set `ENABLE_DOCS=false` in production. |
 | API | `MAX_FILE_SIZE=4000000` | Required Vercel configuration | Leave headroom below Vercel's 4.5 MB Function payload ceiling for multipart overhead. |
 | API | `WARM_LIST_CACHE_ON_STARTUP=false` | Recommended Vercel configuration | Avoid an expensive full B2 scan on each cold start. |
 | API | `DOWNLOAD_COUNT_FILE=/tmp/download_count.json` | Optional ephemeral configuration | Allows a warm Function instance to write the counter, but it is not durable or shared. |
@@ -72,26 +82,11 @@ slow B2 access.
 
 ## One-Click Deploy Buttons
 
-The repository README carries two Vercel deploy buttons, one per Project, in
-deploy order (API first, then web). Each button opens Vercel's clone flow with
-the Project's root directory and required variables pre-populated:
-
-| Button | `root-directory` | Pre-filled `env` |
-| --- | --- | --- |
-| API | `services/api` | `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_ENDPOINT`, `B2_BUCKET_NAME`, `MAX_FILE_SIZE` |
-| Web | `apps/web` | `NEXT_PUBLIC_API_URL` |
-
-The buttons clone the repository into the operator's Git account and create one
-Project each — a fast way to stand up an isolated preview. They deliberately do
-not pre-set `API_CORS_ORIGINS` (the web origin does not exist until the web
-Project is created) or the `ENABLE_DOCS=false` and
-`WARM_LIST_CACHE_ON_STARTUP=false` production values; set those in the Project
-afterward per the tables above. For a durable, reviewed deployment prefer the
-canonical path below: fork once and import that single repository twice, so both
-Projects track the same source instead of two independent clones.
-
-A button is a convenience, not an authorization. Creating the Project, its
-environment variables, and any deployment remains a human-approved action.
+The README ships **no Vercel deploy buttons** for this sample, because the
+segmentation API cannot run on Vercel Functions (see the Fit caveat at the top).
+Deploy the web Project to Vercel and set `NEXT_PUBLIC_API_URL` to the origin of
+the API hosted elsewhere (a container/VM). Creating any Project, its environment
+variables, and any deployment remains a human-approved action.
 
 ## Setup: Human-Approved Only
 

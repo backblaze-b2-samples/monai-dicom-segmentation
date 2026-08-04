@@ -39,9 +39,15 @@ them in a config file, commit, issue, PR, terminal transcript, or screenshot.
 
 | Service | Variable names | Classification | Notes |
 | --- | --- | --- | --- |
-| API | `B2_KEY_ID`, `B2_APPLICATION_KEY` | Secret | Limit the B2 key to the app bucket and least privilege. |
-| API | `B2_ENDPOINT`, `B2_BUCKET_NAME`, `B2_PUBLIC_URL`, `API_CORS_ORIGINS`, `API_CORS_ORIGIN_REGEX`, `ENABLE_DOCS`, `ALLOWED_KEY_PREFIX`, rate and size settings | Non-secret service configuration | Keep values in Railway, not source; set exact production CORS origins and `ENABLE_DOCS=false`. |
+| API | `B2_APPLICATION_KEY_ID`, `B2_APPLICATION_KEY` | Secret | Limit the B2 key to the app bucket and least privilege. |
+| API | `B2_BUCKET_NAME`, `B2_REGION`, `B2_PUBLIC_URL_BASE`, `SEG_DEVICE`, `API_CORS_ORIGINS`, `API_CORS_ORIGIN_REGEX`, `ENABLE_DOCS`, `ALLOWED_KEY_PREFIX`, rate and size settings | Non-secret service configuration | The S3 endpoint is derived from `B2_REGION`. `B2_PUBLIC_URL_BASE` is optional. Set exact production CORS origins and `ENABLE_DOCS=false`. |
 | Web | `NEXT_PUBLIC_API_URL` | Public build-time configuration | Next.js embeds it in browser output; it must be the deployed API origin and contains no credential. |
+
+> **Heavy ML caveat.** The API installs the torch/monai stack from
+> `requirements.lock` and segmentation runs are CPU-bound and multi-minute. Give
+> the `api` service enough memory/CPU (or a GPU plan) and a generous request
+> timeout. This is why the API belongs on Railway's persistent service model, not
+> a serverless Function.
 
 The browser needs a public API origin, so both services require a deliberate
 domain decision. Expose only the intended web and API domains, use an exact API

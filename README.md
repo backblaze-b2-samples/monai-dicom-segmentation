@@ -1,108 +1,85 @@
-<!-- last_verified: 2026-07-30 -->
-# Vibe Coding Starter Kit
+<!-- last_verified: 2026-08-04 -->
+# MONAI DICOM Segmentation
 
-Stop wiring boilerplate and start building. This open-source starter kit gives vibe coders and AI coding agents a production-ready foundation — a full-stack TypeScript + Python template with a pre-built dashboard UI, file upload system, and **[Backblaze B2](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-monai-dicom-segmentation)** cloud storage already integrated. Save thousands of tokens on setup prompts, skip the "build me a dashboard from scratch" loop, and go straight to building your app's unique features.
+Land large DICOM/NIfTI imaging volumes in object storage, run reproducible
+**[MONAI](https://monai.io/)** segmentation over them on-device, and keep every
+derived artifact — normalized volume, organ/lesion mask, and rendered slice
+previews — next to the source data. Built on
+**[Backblaze B2](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-monai-dicom-segmentation)**
+via the S3-compatible API.
 
-**What you get out of the box:**
-- Full-stack dashboard UI (Next.js 16 + React 19 + Tailwind v4 + shadcn/ui)
-- File upload with drag-and-drop, progress tracking, and metadata extraction
-- File browser with preview, download, and delete
-- FastAPI backend with strict layered architecture and structural tests
-- Agent-optimized docs — your AI coding agent can read the repo and start contributing immediately
+This is a full-stack sample (Next.js 16 + FastAPI) for medical-imaging
+researchers and data engineers. **Backblaze B2 credentials are the only secret —
+there is no second API key.** The segmentation model runs locally (CPU by
+default, GPU auto-detected) and its weights are pulled free from the MONAI model
+zoo.
 
-## What it looks like
+## Why B2 for imaging
 
-**Dashboard** — stats, upload activity, and recent uploads at a glance:
-
-![Dashboard view showing stat cards, upload activity chart, and recent uploads table](docs/images/b2-starterkit-dashboard1.png)
-
-**File browser** — tree view with preview, download, and delete:
-
-![File browser view showing a tree of files with hover actions](docs/images/b2-starterkit-fileview2.png)
-
-## Agent-First Architecture
-
-This repo is optimized for coding agents. Use the template, point your agent at it, and start building.
-
-The structure follows the principle that **repository knowledge is the system of record**. Anything an agent can't access in-context doesn't exist — so everything it needs to reason about the codebase is versioned, co-located, and discoverable from the repo itself.
-
-### How it works
-
-**[AGENTS.md](AGENTS.md) is the single source of truth for all coding agents.** Its bounded, agent-sized entry point gives agents the repository layout, architectural invariants, commands, conventions, and pointers to deeper docs. Agent-specific files (CLAUDE.md, GEMINI.md, Copilot instructions, etc.) are thin pointers back to AGENTS.md.
-
-**Architecture is enforced mechanically, not by convention.** Layering rules, import boundaries, file size limits, and SDK containment are verified by structural tests and lints that run on every change. When rules are enforceable by code, agents follow them reliably.
-
-**The knowledge base is structured for progressive disclosure:**
+Scientific imaging is heavy, fast-landing, and **write-amplifying**: one source
+volume fans out into a processed volume, a segmentation mask, N preview slices,
+and a JSON manifest. This sample stores all of it under a single per-study prefix
+via the S3 API, with a custom user-agent and the standard `B2_*` env vars — so
+the raw and derived data live together, versioned, and are cheap to keep:
 
 ```
-AGENTS.md              Single source of truth — layout, invariants, commands, conventions
-ARCHITECTURE.md        System layout, layering rules, data flows
-docs/
-  features/            Feature docs (inputs, outputs, flows, edge cases)
-  app-workflows.md     User journeys
-  dev-workflows.md     Engineering workflows and testing
-  SECURITY.md          Security principles
-  RELIABILITY.md       Reliability expectations
-  exec-plans/          Execution plans and tech debt tracker
+studies/<id>/study.json                 # manifest: metadata + status + artifact keys + stats
+studies/<id>/source/<filename>          # raw uploaded volume (.nii/.nii.gz or DICOM .zip)
+studies/<id>/processed/volume.nii.gz    # MONAI-normalized volume
+studies/<id>/masks/segmentation.nii.gz  # segmentation mask (NIfTI label map)
+studies/<id>/preview/vol_000.png ...    # rendered grayscale axial slices (at ingest)
+studies/<id>/preview/seg_000.png ...    # rendered mask-overlay slices (after segment)
 ```
 
-### Key design decisions
+`study.json` is the source of truth; the Library lists studies by scanning each
+manifest, not by parsing keys.
 
-| Principle | Implementation |
-|-----------|---------------|
-| Give agents a single source of truth | AGENTS.md — bounded layout, invariants, commands, conventions |
-| Enforce invariants mechanically | Structural tests + ruff + ESLint verify boundaries |
-| DRY documentation | Each fact lives in one place; no redundant files to drift |
-| Strict layered architecture | `types -> config -> repo -> service -> runtime`, enforced by tests |
-| Prefer boring, composable libraries | stdlib logging over frameworks, Pydantic over ad-hoc validation |
-| Contain external SDKs | `boto3` only in `repo/` layer — verified by structural test |
-| Keep files agent-sized | 300-line limit per file, enforced by test |
-| Docs updated with code | Same-PR requirement prevents documentation rot |
-| Structured observability | JSON logging, `/metrics` endpoint, request tracing |
+## The Study lifecycle
 
-This approach draws from [OpenAI's experience building with Codex](https://openai.com/index/harness-engineering/): agents work best in environments with strict boundaries, predictable structure, and progressive context disclosure.
+A **Study** is one imaging volume plus its processing lifecycle:
+
+1. **Ingest** (`Ingest` → `/studies/new`) — upload a NIfTI (`.nii`/`.nii.gz`) or a
+   `.zip` of DICOM (`.dcm`) slices. The source lands in B2, DICOM PHI is stripped,
+   and grayscale axial previews are rendered on ingest. Status: `uploaded`.
+2. **Segment** (`Run segmentation` on the study page) — MONAI normalizes the
+   volume, downloads a pretrained zoo bundle, and runs sliding-window inference on
+   the auto-detected device. The processed volume, mask, and mask-overlay previews
+   are written back to B2. Status: `processing` → `segmented` (or `failed`).
+3. **Review** (`/studies/[id]`) — a slice viewer streams the volume and mask
+   overlay from B2 presigned URLs; a stats table reports per-label voxel counts and
+   physical volume in mL.
+4. **Manage** — edit the label/model, re-run, download artifacts, or delete (a
+   delete is scoped to that study's `studies/<id>/` prefix only — never bucket-wide).
+
+## Models & device selection
+
+The segmentation model is a finite, selectable set of MONAI zoo bundles (no free
+text):
+
+| Bundle | Modality | Notes |
+|--------|----------|-------|
+| `spleen_ct_segmentation` (default) | CT | Single-organ UNet. Canonical MONAI demo; modest CPU cost. |
+| `swin_unetr_btcv_segmentation` | CT | 13 abdominal organs via Swin UNETR. Heavier on CPU. |
+
+Inference **auto-detects the device**: CUDA → Apple MPS → CPU, defaulting to CPU.
+Override with `SEG_DEVICE=auto|cpu|cuda|mps` in `.env`. No GPU is required.
+
+> **CPU cost caveat:** the first run downloads the bundle weights, and CPU
+> sliding-window inference on a full CT volume can take a few minutes. The study
+> page shows a live `processing` state and updates itself when the run finishes.
 
 ## Quick Start
 
-You need: Node.js >= 20, pnpm >= 9, Python >= 3.11, and a free **[Backblaze B2 account](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-monai-dicom-segmentation)**.
+You need: Node.js >= 20, pnpm >= 9, Python >= 3.11, and a free **[Backblaze B2
+account](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-monai-dicom-segmentation)**.
 
 ### Supported local environments
 
 Local scripts are supported on macOS, Linux, and WSL2. Native Windows is not
 supported yet because the dev scripts use POSIX shell syntax and
-`services/api/.venv/bin/*` paths; use WSL2 on Windows.
-
-Cloud or sandboxed coding-agent environments also need permission for dependency
-downloads during `pnpm run setup`. Running the app or Playwright E2E requires
-localhost server binding for the web server on port 3000 and the API on
-8000-8009, plus permission to launch the Playwright Chromium browser. If a
-sandbox denies binding, `pnpm run doctor` and `scripts/pick-port.mjs` report
-`EPERM`/`EACCES` as a permissions issue instead of a busy port. A host without
-IPv6 (many containers) is not treated as a failure — the IPv4 probe decides.
-
-### Start a new project
-
-**Option 1: GitHub Template (recommended)**
-
-Click the green **"Use this template"** button at the top of this repo, name your project, then:
-
-```bash
-git clone https://github.com/yourorg/my-cool-app.git
-cd my-cool-app
-```
-
-**Option 2: Clone and reinitialize**
-
-```bash
-git clone https://github.com/backblaze-b2-samples/monai-dicom-segmentation.git my-cool-app
-cd my-cool-app
-rm -rf .git
-git init
-git add .
-git commit -m "Initial commit from monai-dicom-segmentation"
-```
-
-Either way you get a clean project with no upstream history — ready to push to your own repo and point your agent at it.
+`services/api/.venv/bin/*` paths; use WSL2 on Windows. The ML dependencies
+(torch, monai, nibabel, pydicom, scikit-image, scipy) are sizeable — `pnpm run
+setup` needs permission to download them.
 
 ### Setup
 
@@ -115,8 +92,8 @@ pnpm run setup
 This copies `.env.example` to `.env` only when `.env` does not already exist,
 installs workspace dependencies from `pnpm-lock.yaml`, creates
 `services/api/.venv` if missing, and installs the API's committed Python 3.11
-resolution from `services/api/requirements.lock`. It is safe to rerun and never
-overwrites an existing `.env`.
+resolution (including the MONAI/torch stack) from `services/api/requirements.lock`.
+It is safe to rerun and never overwrites an existing `.env`.
 
 > Use the `pnpm run` form: `setup` (like `doctor`) is a built-in pnpm command
 > before pnpm 11, so bare `pnpm setup` would run pnpm's own command instead of
@@ -124,16 +101,20 @@ overwrites an existing `.env`.
 
 **2. Add your B2 credentials**
 
-Open `.env` in your editor and keep it visible. Then head to the [Backblaze B2 dashboard](https://secure.backblaze.com/b2_buckets.htm?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-monai-dicom-segmentation) and:
+Open `.env` and, from the [Backblaze B2
+dashboard](https://secure.backblaze.com/b2_buckets.htm?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-monai-dicom-segmentation):
 
-1. **Create a bucket.** B2 will show two values — paste each into `.env`:
-   - **Bucket Unique Name** → `B2_BUCKET_NAME`
-   - **Endpoint** → `B2_ENDPOINT`
-2. **Create an application key** with `Read and Write` permission. B2 will show two values — paste each into `.env`:
-   - **keyID** → `B2_KEY_ID`
-   - **applicationKey** → `B2_APPLICATION_KEY` *(only shown once — paste it now)*
+1. **Create a bucket** and set `B2_BUCKET_NAME` to its unique name and `B2_REGION`
+   to its region (e.g. `us-west-004`). The S3 endpoint is derived from the region
+   (`https://s3.<region>.backblazeb2.com`) — no endpoint variable to set.
+2. **Create an application key** with `Read and Write` permission:
+   - **keyID** → `B2_APPLICATION_KEY_ID`
+   - **applicationKey** → `B2_APPLICATION_KEY` *(shown once — paste it now)*
 
-> Want a walkthrough? See the docs for [creating a bucket](https://www.backblaze.com/docs/cloud-storage-create-and-manage-buckets) and [creating app keys](https://www.backblaze.com/docs/cloud-storage-create-and-manage-app-keys).
+`B2_PUBLIC_URL_BASE` is optional (only used to build public object URLs for public
+buckets). See docs for [creating a
+bucket](https://www.backblaze.com/docs/cloud-storage-create-and-manage-buckets)
+and [app keys](https://www.backblaze.com/docs/cloud-storage-create-and-manage-app-keys).
 
 **3. Run it**
 
@@ -141,44 +122,52 @@ Open `.env` in your editor and keep it visible. Then head to the [Backblaze B2 d
 pnpm dev
 ```
 
-That's it. Frontend at `localhost:3000`, API at `localhost:8000`. Upload a file and see it working. Interactive API docs (Swagger UI) are at `localhost:8000/docs`, with ReDoc at `/redoc`.
+Frontend at `localhost:3000`, API at `localhost:8000`. Interactive API docs
+(Swagger UI) are at `localhost:8000/docs`, ReDoc at `/redoc`. `pnpm dev` runs the
+preflight check first — catch setup gotchas any time with `pnpm run doctor`.
 
-`pnpm dev` runs the preflight check first — it catches the common setup gotchas (wrong Node/Python version, missing venv, missing or placeholder `.env`, ports already taken) and tells you exactly how to fix each one. Run it standalone any time with `pnpm run doctor`.
+### Get a test volume
 
-## Building Your App
+Any abdominal CT `.nii.gz` works with the default spleen bundle. Good sources:
 
-When you adapt this kit for a new app, keep the shared scaffolding and only swap out what's app-specific:
+- The **Medical Segmentation Decathlon** spleen task (`Task09_Spleen`) — grab one
+  volume from `imagesTr/`, ingest it as modality **CT**, model
+  `spleen_ct_segmentation`.
+- Any anonymized DICOM CT series: zip the `.dcm` files into a single `.zip` and
+  ingest that (PHI tags are stripped during processing).
 
-- **Keep** the UI kit (`apps/web/src/components/ui/` + design tokens in `globals.css` + `/design`).
-- **Keep** the File Explorer (`/files`) and Upload (`/upload`) pages and their sidebar nav entries — they're the reusable B2-backed surface.
-- **Adapt** the Dashboard (`/`) to your use case — replace the default stats, chart, and recent uploads with metrics that reflect what your app actually does.
-- **Rebrand** by editing a single file: `apps/web/src/lib/app-config.ts` holds the app name and description (`APP_NAME`, `APP_DESCRIPTION`). Changing them there updates the page title, sidebar, and breadcrumb everywhere — no other files to touch.
+## Building on this kit
 
-Full contract and rationale: [AGENTS.md §2 — Building on This Starter Kit](AGENTS.md#2-building-on-this-starter-kit).
+This sample is built on the Backblaze B2 vibe-coding starter kit and keeps its
+spine. When adapting it:
+
+- **Keep** the UI kit (`apps/web/src/components/ui/` + design tokens in
+  `globals.css` + `/design`) and the full-bucket **File Explorer** (`/files`) — the
+  latter is the non-removable bucket browser, distinct from the studies-scoped
+  **Library** (`/studies`).
+- **Adapt** the Dashboard (`/`) — it is restated here around study metrics.
+- **Rebrand** in one file: `apps/web/src/lib/app-config.ts` (`APP_NAME`,
+  `APP_DESCRIPTION`).
+
+Full contract: [AGENTS.md §2](AGENTS.md#2-building-on-this-starter-kit).
 
 ## Core Features
 
-- [File Upload](docs/features/file-upload.md) — drag-and-drop upload with real-time progress
-- [File Browser](docs/features/file-browser.md) — list, preview, download, delete files
-- [Dashboard](docs/features/dashboard.md) — stats cards, upload chart, recent uploads
-- [Metadata Extraction](docs/features/metadata-extraction.md) — image dimensions, EXIF, PDF info, checksums
-- [Design System](docs/design-system.md) — tokens, primitives, AI elements, the blaze generating loader, and inline `ErrorState` / `EmptyState` patterns. Live preview at `/design`.
-- Inline error handling — fetch failures surface *what's wrong* (API offline, 401, 5xx) and offer a Retry, instead of silently rendering empty state.
-- Single-source config — one `.env` at the repo root powers both API and web app, validated at startup so misconfig fails fast with a readable message.
-- Centralized data layer — every fetch goes through TanStack Query hooks in `apps/web/src/lib/queries.ts`; cache invalidation is one call after a mutation.
-- Checked API contract — `docs/api/openapi.json` plus `pnpm contract:check` catch FastAPI/client route drift.
-- Structural tests — verify layering rules, import boundaries, SDK containment, file size limits
-- Structured JSON logging — every request traced with `request_id` and timing
-- `/health` endpoint — B2 connectivity check
-- `/metrics` endpoint — Prometheus-format counters (request count, latency, uploads)
-- `/docs` + `/redoc` — auto-generated interactive API docs (toggle off in prod with `ENABLE_DOCS=false`)
-- Per-IP rate limiting and magic-byte upload validation — see [SECURITY.md](docs/SECURITY.md)
+- [Study Ingest](docs/features/study-ingest.md) — DICOM/NIfTI upload to B2 with PHI stripping and on-ingest previews
+- [Segmentation](docs/features/segmentation.md) — pretrained MONAI zoo bundle, sliding-window inference, CPU-default / GPU-autodetect
+- [Slice Viewer](docs/features/slice-viewer.md) — server-rendered volume + mask-overlay slices streamed from B2 presigned URLs
+- [Study Library](docs/features/study-library.md) — studies-scoped explorer over `studies/`, distinct from the full-bucket browser
+- [Write Amplification](docs/features/write-amplification.md) — one source → processed + mask + previews + manifest, all under one prefix
+- [File Browser](docs/features/file-browser.md) — the kept full-bucket explorer: list, preview, download, delete
+- [Dashboard](docs/features/dashboard.md) — study stats and recent studies
+- [Metadata Extraction](docs/features/metadata-extraction.md) — image/PDF metadata + checksums for bucket objects
+- [Settings](docs/features/settings.md) · [Design System](docs/design-system.md)
 
 ## Tech Stack
 
-- TypeScript, Next.js 16, React 19, Tailwind v4, shadcn/ui, Recharts
-- TanStack Query — caching, dedup, retry, stale-while-revalidate for every fetch
-- Python 3.11+, FastAPI, boto3, Pydantic v2, Pillow, PyPDF2
+- TypeScript, Next.js 16, React 19, Tailwind v4, shadcn/ui, Recharts, TanStack Query
+- Python 3.11+, FastAPI, boto3, Pydantic v2, Pillow
+- **MONAI + PyTorch** (segmentation), nibabel + pydicom (I/O + de-identification), scikit-image/scipy
 - Backblaze B2 (S3-compatible object storage)
 - pnpm workspaces (monorepo)
 
@@ -186,7 +175,7 @@ Full contract and rationale: [AGENTS.md §2 — Building on This Starter Kit](AG
 
 | Command | What it does |
 |---------|-------------|
-| `pnpm run setup` | Idempotently copy `.env.example` to `.env` only if missing, install workspace dependencies, create the backend venv, and install the locked API dependencies |
+| `pnpm run setup` | Idempotently copy `.env.example` to `.env` if missing, install workspace dependencies, create the backend venv, and install the locked API dependencies |
 | `pnpm run doctor` | Preflight environment check (also runs automatically before `pnpm dev`) |
 | `pnpm dev` | Start frontend + backend |
 | `pnpm dev:web` | Frontend only |
@@ -204,60 +193,27 @@ Full contract and rationale: [AGENTS.md §2 — Building on This Starter Kit](AG
 | `pnpm test:web` | Run frontend unit tests (vitest) |
 | `pnpm test:api` | Run backend tests |
 | `pnpm check:structure` | Verify layering rules |
-| `pnpm test:e2e` | Playwright E2E smoke tests (run `pnpm --filter @monai-dicom-segmentation/web exec playwright install chromium` once first) |
+| `pnpm test:e2e` | Playwright E2E smoke tests |
 
 Run `pnpm run setup` once before local development, and rerun it after pulling
-dependency changes. It installs workspace dependencies from `pnpm-lock.yaml`
-and API dependencies from `services/api/requirements.lock`. If you add a Node
-dependency yourself, run `pnpm install` to refresh `pnpm-lock.yaml`; for an API
-dependency, follow the reviewed refresh workflow in
+dependency changes. If you add a Node dependency, run `pnpm install` to refresh
+`pnpm-lock.yaml`; for an API dependency, follow the reviewed refresh workflow in
 [docs/dev-workflows.md](docs/dev-workflows.md#python-dependency-updates). Run
-`pnpm verify` before opening a PR; it needs
-`services/api/.venv` from setup. Run `pnpm verify:full` when you can start the
-local app stack and browser tests: `.env` must contain real B2 values, local
-server binding must be permitted, Playwright's Chromium browser must be
-installed, and port 3000 must be free (or already serving this app). Playwright
-waits on `http://localhost:3000`,
-but `next dev` falls back to the next free port when 3000 is taken — so an
-unrelated process on 3000 makes the E2E run time out. The API starts at
-`localhost:8000` or the next free port chosen by `scripts/dev.sh`.
+`pnpm verify` before opening a PR; it needs `services/api/.venv` from setup and
+neither B2 credentials nor a browser (the segmentation stack is imported lazily,
+so tests run without it). Run `pnpm verify:full` when you can start the local app
+stack and browser tests.
 
-`pnpm verify` needs neither B2 credentials nor a browser. For parallel agents,
-use one Git worktree per verification run as documented in [the verification
-workflow](docs/dev-workflows.md#non-live-verification). That page also covers
-normal timing, slow-run recovery, and installing the optional local pre-commit
-hooks.
+## Deployment
 
-## Deploying to Vercel
-
-This starter runs on Vercel as **two Projects from the same monorepo** — the
-FastAPI API rooted at `services/api` and the Next.js web app rooted at
-`apps/web`. Deploy them in order and wire the two origins together:
-
-| Step | Project | One-click deploy |
-|------|---------|------------------|
-| 1 | **API** (`services/api`) | [![Deploy the API to Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbackblaze-b2-samples%2Fmonai-dicom-segmentation&root-directory=services%2Fapi&project-name=vcsk-api&env=B2_KEY_ID,B2_APPLICATION_KEY,B2_ENDPOINT,B2_BUCKET_NAME,MAX_FILE_SIZE&envDescription=B2%20credentials%2C%20bucket%2C%20and%20the%204MB%20Vercel%20upload%20cap&envLink=https%3A%2F%2Fgithub.com%2Fbackblaze-b2-samples%2Fmonai-dicom-segmentation%2Fblob%2Fmain%2Finfra%2Fvercel%2FREADME.md) |
-| 2 | **Web** (`apps/web`) | [![Deploy the web app to Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbackblaze-b2-samples%2Fmonai-dicom-segmentation&root-directory=apps%2Fweb&project-name=vcsk-web&env=NEXT_PUBLIC_API_URL&envDescription=Origin%20of%20the%20deployed%20API%20Project%20from%20step%201&envLink=https%3A%2F%2Fgithub.com%2Fbackblaze-b2-samples%2Fmonai-dicom-segmentation%2Fblob%2Fmain%2Finfra%2Fvercel%2FREADME.md) |
-
-1. **Deploy the API.** Set the B2 credentials and bucket, and
-   `MAX_FILE_SIZE=4000000` — Vercel Functions cap each request/response payload
-   at 4.5 MB, so the starter's 100 MB default must come down. Copy the API URL
-   Vercel gives you.
-2. **Deploy the web app.** Set `NEXT_PUBLIC_API_URL` to that API URL; Next.js
-   inlines it at build time. Copy the web URL.
-3. **Let the browser reach the API.** In the API Project, set
-   `API_CORS_ORIGINS` to the exact web URL and redeploy — otherwise the browser
-   blocks every call by CORS.
-
-For uploads larger than 4.5 MB, switch to a direct-to-B2 presigned-upload flow
-instead of proxying file bytes through a Function.
-
-The buttons clone the repo into your account as a quick preview. For the durable
-setup (fork once, import it twice as two Projects), the full variable
-classification, security controls, preview/production process, `/health`
-verification, and rollback, follow the [Vercel delivery contract](infra/vercel/README.md).
-The API is unauthenticated and bucket-wide, so use a dedicated B2 bucket/prefix
-and key for any preview. Deploying is a human-approved action — nothing here
+The segmentation pipeline needs the full torch/monai stack and real CPU/GPU time,
+so it does **not** fit serverless Python (e.g. Vercel Functions). Deploy the API
+to a container/VM host that allows heavy dependencies and long-running requests
+(Railway, Fly.io, a GPU box, etc.) and the web app anywhere Next.js runs. The
+kept infra templates ([infra/railway](infra/railway/README.md),
+[infra/vercel](infra/vercel/README.md)) are rebranded starting points and note
+this caveat. The API is unauthenticated and single-tenant — use a dedicated
+bucket and least-privilege key. Deploying is a human-approved action; nothing here
 performs one for you.
 
 ## Documentation Map
@@ -265,26 +221,14 @@ performs one for you.
 | Doc | Purpose |
 |-----|---------|
 | [AGENTS.md](AGENTS.md) | Agent table of contents — start here |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System layout, layering, data flows |
-| [docs/features/](docs/features/) | Feature docs (upload, browser, dashboard, metadata) |
-| [docs/design-system.md](docs/design-system.md) | Design tokens, primitives, AI elements, loader, error/empty states |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System layout, layering, data flows, the MONAI pipeline |
+| [docs/features/](docs/features/) | Feature docs (ingest, segmentation, slice viewer, library, browser, dashboard) |
 | [docs/app-workflows.md](docs/app-workflows.md) | User journeys |
 | [docs/dev-workflows.md](docs/dev-workflows.md) | Engineering workflows and testing |
-| [docs/SECURITY.md](docs/SECURITY.md) | Security principles |
+| [docs/SECURITY.md](docs/SECURITY.md) | Security principles (incl. medical-data stance) |
 | [docs/RELIABILITY.md](docs/RELIABILITY.md) | Reliability expectations |
-| [infra/vercel/README.md](infra/vercel/README.md) | Vercel deployment contract |
 | [docs/exec-plans/](docs/exec-plans/) | Execution plans and tech debt tracker |
-
-## Contributing
-
-Start with [AGENTS.md](AGENTS.md). It's the map — everything else is discoverable from there. For local commit hooks, follow [the pre-commit workflow](docs/dev-workflows.md#pre-commit).
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Claude Agent B2 Skill
-
-Manage Backblaze B2 from your terminal using natural language (list/search, audits, stale or large file detection, security checks, safe cleanup).
-
-Repo: [https://github.com/backblaze-b2-samples/claude-skill-b2-cloud-storage](https://github.com/backblaze-b2-samples/claude-skill-b2-cloud-storage)
+MIT License — see [LICENSE](LICENSE) for details.

@@ -6,20 +6,22 @@ product
 
 ## Users
 
-AI coding agents and "vibe coders" (developers who lean on AI to move fast) who clone
-this kit as the foundation for a new full-stack app. Their context: they want to skip
-the boilerplate loop (dashboard, upload, file browser, cloud storage wiring) and go
-straight to building their app's unique features. They read the repo, keep the shared
-scaffolding, and rebrand + rewrite the dashboard for their own use case.
+Medical-imaging researchers and data engineers who need to land large DICOM/NIfTI
+volumes in object storage, run reproducible MONAI segmentation over them on-device,
+and keep every derived artifact next to the source data. Their context: heavy,
+fast-landing scientific data with write-amplification, and a strong preference for
+open-source models that run locally with no second API key.
 
 ## Product Purpose
 
-A production-ready full-stack starter kit (Next.js 16 + React 19 + Tailwind v4 +
-shadcn/ui frontend, FastAPI backend) with Backblaze B2 cloud storage integrated out of
-the box. It ships a dashboard, drag-and-drop upload, and a file browser so builders
-start from a working app, not a blank page. Success = a builder can clone it, run it,
-rebrand it via one config file, and trust every screen enough to build on top without
-first fixing it.
+A full-stack sample (Next.js 16 + React 19 + Tailwind v4 + shadcn/ui frontend,
+FastAPI backend) that runs a MONAI segmentation pipeline over imaging volumes stored
+in Backblaze B2. Ingest a volume, segment it with a pretrained MONAI zoo bundle
+(CPU-default, GPU auto-detected), and review the mask overlay in a slice viewer — with
+the source, processed volume, mask, previews, and manifest all versioned under one B2
+prefix. Success = a researcher can clone it, add only B2 credentials, ingest a CT
+volume, and see a real segmentation and its artifacts land in their bucket. It is
+built on the B2 vibe-coding starter kit and keeps that kit's spine and quality bar.
 
 ## Brand Personality
 

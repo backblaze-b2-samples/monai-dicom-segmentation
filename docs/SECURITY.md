@@ -6,13 +6,19 @@ Security principles and implementation for the monai-dicom-segmentation.
 ## Trust Boundaries
 
 - **Frontend -> API**: CORS-restricted to configured origins, scoped to `GET/POST/DELETE/OPTIONS`. `allow_credentials` is `False` (no cookie/session auth today); enable it only alongside real auth and a tightened origin allowlist.
-- **API -> B2**: Authenticated via `B2_KEY_ID` + `B2_APPLICATION_KEY`, signature v4
-- **Client -> B2**: Presigned URLs for download (10-min expiry, `Content-Disposition: attachment`)
+- **API -> B2**: Authenticated via `B2_APPLICATION_KEY_ID` + `B2_APPLICATION_KEY`, signature v4
+- **Client -> B2**: Presigned URLs for download (10-min expiry, `Content-Disposition: attachment`) and inline slice previews
 
 ## Authentication & Multi-Tenancy
 
-- **No auth by design.** The file API (`/files`, `/files-by-key`, `/upload`) is unauthenticated and bucket-wide — any client can list, download, and delete every object. Acceptable for a single-tenant demo; the rate limiter guards the open endpoints.
-- **Adding auth to a clone does not close this automatically.** A login screen alone leaves an open, cross-user file API. You must both (1) require auth on every file route and (2) scope listings and reads to the caller's own prefixes — skipping either lets one signed-in user read and delete another's files. See the co-located notes in `runtime/files.py` and `service/files.py`.
+- **No auth by design.** Both the file API (`/files`, `/files-by-key`, `/upload`) and the study API (`/studies`, `/studies/{id}`, `/studies/{id}/segment`, slice previews) are unauthenticated and bucket-wide — any client can list, read, run, and delete everything. Acceptable for a single-tenant demo; the rate limiter guards the open endpoints.
+- **Study deletes are scoped, not isolated.** A delete removes only that study's `studies/<id>/` prefix (never bucket-wide — enforced in `repo/b2_object.delete_prefix`), but there is still no per-user isolation.
+- **Adding auth to a clone does not close this automatically.** A login screen alone leaves an open, cross-user API. You must both (1) require auth on every route and (2) scope listings/reads to the caller's own prefixes — skipping either lets one signed-in user read and delete another's data. See the co-located notes in `runtime/files.py`, `service/files.py`, and `runtime/studies.py`.
+
+## Medical Data & De-identification
+
+- **DICOM PHI is stripped before storage of derived artifacts.** `service/volume_io.py` clears known PHI tags (patient name/ID/birth date, referring physician, institution, accession, etc.) and drops all private tags during load; the count is recorded in the manifest. The processed volume and mask are NIfTI label/scalar data carrying no DICOM patient tags.
+- **This is a demonstration, not a compliant pipeline.** The *raw* uploaded source is stored as-is under the study prefix, and the app is single-tenant and unauthenticated. **Do not process real PHI** without adding authentication, per-tenant scoping, encryption/BAA controls, and source-level de-identification at ingest.
 
 ## Upload Validation
 
@@ -74,7 +80,7 @@ Security principles and implementation for the monai-dicom-segmentation.
 The [Railway](../infra/railway/README.md) and
 [Vercel](../infra/vercel/README.md) delivery contracts are the canonical
 locations for production variable classification and environment access rules.
-In particular, `B2_KEY_ID` and `B2_APPLICATION_KEY` are secrets; the web
+In particular, `B2_APPLICATION_KEY_ID` and `B2_APPLICATION_KEY` are secrets; the web
 service's `NEXT_PUBLIC_API_URL` is intentionally public build-time
 configuration and must never contain a credential. Keep production variables,
 logs, and metrics restricted to authorized operators.

@@ -1,23 +1,35 @@
-<!-- last_verified: 2026-07-30 -->
+<!-- last_verified: 2026-08-04 -->
 # Architecture
+
+MONAI DICOM Segmentation is a medical-imaging pipeline on the B2 starter spine.
+The **Study** domain (ingest → segment → review) sits on top of the kept starter
+scaffolding (bucket explorer, upload, dashboard, UI kit).
 
 ## Components
 
 - **apps/web/** — Next.js 16 frontend (App Router, Tailwind v4, shadcn/ui)
-  - Dashboard with stats, upload chart, recent uploads
-  - File upload with drag-and-drop, progress tracking
-  - File browser with preview, download, delete
+  - Studies Library (`/studies`) — a grid scoped to the `studies/` prefix
+  - Study ingest (`/studies/new`), slice viewer + actions (`/studies/[id]`), edit (`/studies/[id]/edit`)
+  - Dashboard restated around study metrics; kept full-bucket File Browser + Upload
   - Dark mode via `next-themes`
 - **services/api/** — FastAPI backend (layered architecture)
-  - REST API for file upload, listing, deletion
-  - B2 S3 integration via boto3
-  - File metadata extraction (images, PDFs)
-  - Health check endpoint with B2 connectivity verification
-  - Structured JSON logging with request tracing
-  - Prometheus-format metrics endpoint
-- **packages/shared/** — TypeScript type definitions
-  - Mirrors Pydantic models from the API
-  - Consumed by `apps/web/` as workspace dependency
+  - Study CRUD + segmentation over B2 (`runtime/studies.py`, `service/studies.py`)
+  - The MONAI pipeline in `service/segmentation.py` (heavy imports LAZY) + `service/volume_io.py` (I/O + DICOM de-identification) + `service/rendering.py` (slice PNGs)
+  - Kept file upload/listing/deletion, metadata extraction, B2 S3 integration via boto3
+  - Health, structured JSON logging, Prometheus metrics
+- **packages/shared/** — TypeScript type definitions mirroring the Pydantic models
+
+## MONAI Segmentation Pipeline
+
+- `service/segmentation.py` holds the pipeline: load → normalize → download a
+  pretrained MONAI zoo bundle → `sliding_window_inference` → render overlays.
+- **Heavy imports (torch, monai, nibabel, pydicom, numpy) are done LAZILY inside
+  functions.** The FastAPI app and pytest collection load without the ML stack;
+  the invariant is what keeps `pnpm verify` credential- and torch-free.
+- Device is auto-detected (CUDA → Apple MPS → CPU, default CPU; `SEG_DEVICE`
+  override) — no GPU is ever required.
+- The heavy `POST /studies/{id}/segment` runs in Starlette's threadpool so a
+  multi-minute CPU run never blocks the event loop.
 
 ## Backend Layering
 
@@ -73,20 +85,29 @@ services/api/
   repository root because it consumes `packages/shared`; `api` builds from
   `services/api`. The versioned per-service configs and the human-approved
   staging/production contract live in [infra/railway/README.md](infra/railway/README.md).
-- **Vercel** — two Projects from the same repository: `web` has root
-  `apps/web`, and `api` has root `services/api`. The API is a FastAPI Function
-  discovered through `services/api/index.py`; it is suitable only for uploads
-  below Vercel's 4.5 MB Function payload ceiling. The delivery contract lives
-  in [infra/vercel/README.md](infra/vercel/README.md).
+- **Vercel** — the web app runs well on Vercel. The **segmentation API does not
+  fit serverless Python**: the torch/monai stack and multi-minute inference
+  exceed Function size/time limits. Deploy the API to a container/VM host
+  (Railway, Fly.io, a GPU box) instead. The rebranded templates in
+  [infra/railway/README.md](infra/railway/README.md) and
+  [infra/vercel/README.md](infra/vercel/README.md) note this caveat.
 
 External provisioning and deployment remain explicit user-approved actions.
 
 ## Data Stores
 
-- **Backblaze B2** — object storage (S3-compatible API)
-  - All uploaded files stored in a single bucket
-  - File listing and metadata via S3 `list_objects_v2` / `head_object`
-  - No application database — B2 is the sole data store
+- **Backblaze B2** — object storage (S3-compatible API); no application database.
+- Each study is a self-contained prefix; `study.json` is the source of truth:
+  ```
+  studies/<id>/study.json                 manifest (metadata + status + artifact keys + stats)
+  studies/<id>/source/<filename>          raw uploaded volume
+  studies/<id>/processed/volume.nii.gz    MONAI-normalized volume
+  studies/<id>/masks/segmentation.nii.gz  segmentation mask
+  studies/<id>/preview/vol_NNN.png        grayscale axial previews (at ingest)
+  studies/<id>/preview/seg_NNN.png        mask-overlay previews (after segment)
+  ```
+- Listing scans each manifest (`list_prefix_objects`), not raw keys; stats and
+  the full-bucket explorer use `list_objects_v2` / `head_object`.
 
 ## External Services
 
@@ -102,10 +123,11 @@ See [docs/SECURITY.md](docs/SECURITY.md) for full security documentation.
 
 ## Data Flows
 
-- **Upload**: Browser -> `POST /upload` (multipart) -> API validates -> service orchestrates -> repo writes to B2 -> metadata extracted -> response
-- **List**: Browser -> `GET /files` -> service calls repo -> returns file list
-- **Download**: Browser -> `GET /files/{key}/download` -> service validates key -> repo generates presigned URL -> browser downloads
-- **Delete**: Browser -> `DELETE /files/{key}` -> service validates key -> repo deletes from B2
+- **Ingest**: Browser -> `POST /studies` (multipart) -> validate -> write source -> lazily load volume (nibabel/pydicom) + de-identify DICOM -> render previews -> write manifest (`uploaded`)
+- **Segment**: Browser -> `POST /studies/{id}/segment` (threadpool) -> normalize -> download bundle + inference -> write processed/mask/overlays -> manifest (`segmented`) with per-label volumes
+- **Review**: Browser -> `GET /studies/{id}/slices/{kind}/{index}` -> presigned inline URL -> browser loads the PNG from B2
+- **List/Delete**: `GET /studies` scans manifests; `DELETE /studies/{id}` removes only that prefix
+- **Kept file flows**: `POST /upload`, `GET /files`, `GET /files/{key}/download`, `DELETE /files/{key}` (full-bucket explorer)
 
 ## Observability
 
@@ -128,10 +150,11 @@ silently drift from FastAPI. `GET /metrics` is intentionally server-only.
 
 ## Canonical Files
 
-- Layered API handler: `services/api/app/runtime/upload.py`
-- Service orchestration: `services/api/app/service/upload.py`
-- B2 data access (repo layer): `services/api/app/repo/b2_client.py`
-- Pydantic models: `services/api/app/types/` (`files.py`, `upload.py`, `stats.py`, `formatting.py`)
+- Layered API handler: `services/api/app/runtime/studies.py`
+- Service orchestration: `services/api/app/service/studies.py`
+- MONAI pipeline (lazy ML): `services/api/app/service/segmentation.py`, `service/volume_io.py`, `service/rendering.py`
+- B2 data access (repo layer): `services/api/app/repo/b2_client.py`, `repo/b2_object.py`
+- Pydantic models: `services/api/app/types/` (`studies.py`, `files.py`, `upload.py`, `stats.py`, `formatting.py`)
 - Config (pydantic-settings): `services/api/app/config/settings.py`
 - Structural tests: `services/api/tests/test_structure.py`
 - OpenAPI contract: `docs/api/openapi.json`
@@ -141,10 +164,12 @@ silently drift from FastAPI. `GET /metrics` is intentionally server-only.
 
 ## Core Features
 
-- [File Upload](docs/features/file-upload.md)
-- [File Browser](docs/features/file-browser.md)
-- [Dashboard](docs/features/dashboard.md)
-- [Metadata Extraction](docs/features/metadata-extraction.md)
+- [Study Ingest](docs/features/study-ingest.md)
+- [Segmentation](docs/features/segmentation.md)
+- [Slice Viewer](docs/features/slice-viewer.md)
+- [Study Library](docs/features/study-library.md)
+- [Write Amplification](docs/features/write-amplification.md)
+- [File Browser](docs/features/file-browser.md) · [Dashboard](docs/features/dashboard.md) · [Metadata Extraction](docs/features/metadata-extraction.md)
 
 ## References
 

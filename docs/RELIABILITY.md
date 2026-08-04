@@ -40,6 +40,18 @@ The download counter and the `/metrics` counters are **in-process, per replica**
 - Per-IP fixed-window limiter (`app/runtime/ratelimit.py`); `RATE_LIMIT_PER_MINUTE` / `RATE_LIMIT_WRITE_PER_MINUTE` are the budgets. Rejected requests get `429` with a `Retry-After` header.
 - Counters are in-process per replica; horizontal scaling needs a shared store (e.g. Redis) for a global limit.
 
+## Long-Running Segmentation
+
+- `POST /studies/{id}/segment` is CPU-bound and multi-minute (bundle download +
+  sliding-window inference). It runs in Starlette's threadpool so the event loop
+  and other requests are never blocked, and the manifest is written as
+  `processing` first so a crash mid-run is visible rather than silent.
+- The frontend polls the study while it is `processing` and flips to
+  `segmented`/`failed` on its own. On error the manifest records `failed` + the
+  message; the run is idempotent to re-run.
+- Behind a deployment, give the API generous per-request timeouts and enough
+  memory/CPU (or a GPU) — see [infra/railway/README.md](../infra/railway/README.md).
+
 ## Graceful Degradation
 
 - File listing returns empty list (not error) when B2 has no objects
