@@ -15,7 +15,7 @@ PyPDF2>=3.0.0
 # --- MONAI segmentation pipeline (local ML; imported lazily at runtime) ---
 # Upper bounds are load-bearing: unbounded ML pins boot green but break the
 # marquee segmentation on a clean install. Keep in sync with requirements.lock.
-monai>=1.4.0,<1.5.0
+monai>=1.6.0,<1.7.0
 torch>=2.4.0,<2.9.0
 nibabel>=5.2.0,<6.0.0
 pydicom>=2.4.0,<4.0.0
