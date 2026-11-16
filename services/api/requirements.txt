@@ -10,7 +10,7 @@ pydantic>=2.10.0
 pydantic-settings>=2.7.0
 boto3>=1.35.0
 Pillow>=11.0.0
-PyPDF2>=3.0.0
+PyPDF2>=3.0.1
 
 # --- MONAI segmentation pipeline (local ML; imported lazily at runtime) ---
 # Upper bounds are load-bearing: unbounded ML pins boot green but break the
